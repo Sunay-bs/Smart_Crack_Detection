@@ -1,0 +1,210 @@
+Here is the code to implement using STM board (we used STM32Fxxxxx-Nucleo) . Before using the code the pin configurations have to be set using the STM32CubeMX tool and the code has to be added in the generated C file . 
+1. Pin Configuration:
+PIR Sensors: Assign GPIO pins for leftPirPin (e.g., PA0) and rightPirPin (e.g., PA1) as GPIO Input.
+Ultrasonic Sensor: Assign PA6 for the Trig pin (as GPIO Output) and PA7 for the Echo pin (as GPIO Input).
+LED/Buzzer: Assign a GPIO output pin (e.g., PA5) for ledBuzzerPin and set it as GPIO Output.
+Motor Control:
+Motor A: Assign PB0 for enA (PWM), PB1 for motorIn1A (GPIO Output), and PB2 for motorIn2A (GPIO Output).
+Motor B: Assign PB10 for enB (PWM), PB11 for motorIn1B (GPIO Output), and PB12 for motorIn2B (GPIO Output).
+UART for GPS and GSM:
+Configure USART2 for GPS and assign PA2 (TX) and PA3 (RX).
+Configure USART3 for GSM and assign PB10 (TX) and PB11 (RX).
+
+2. Configure Peripheral Settings
+GPIO Configuration:
+
+Set PA0 and PA1 (PIR sensor pins) as GPIO Input.
+Set PA6 as GPIO Output for the ultrasonic sensor’s Trig pin.
+Set PA7 as GPIO Input for the ultrasonic sensor’s Echo pin.
+Set PA5 as GPIO Output for the LED/Buzzer.
+Set motor control pins (PB0, PB1, PB2, PB10, PB11, PB12) appropriately as GPIO Output.
+UART Configuration:
+
+Configure USART2 for GPS with a Baud Rate of 9600 and enable Both TX and RX.
+Configure USART3 for GSM with a Baud Rate of 9600 and enable Both TX and RX.
+PWM Configuration (for Motor Speed Control on enA and enB pins):
+
+Go to the Timers tab and enable TIM3 and TIM4 for PWM.
+Set TIM3 Channel 1 for enA (PB0) and TIM4 Channel 3 for enB (PB10).
+In the PWM settings, select a frequency and duty cycle as required (e.g., frequency of 1 kHz).
+
+3. Configure NVIC Settings
+Enable USART2 and USART3 interrupt if you plan to handle UART interrupts.
+Enable TIM3 and TIM4 interrupts if you plan to control motor speed dynamically.
+
+4. Clock Configuration
+Ensure that the system clock is set up to the highest possible frequency (typically 84 MHz for STM32F4).
+Configure the necessary clocks for UART, GPIO, and timers to ensure they are enabled.
+
+Code:
+
+#include <HardwareSerial.h>
+
+// Define pins for GPS and GSM modules and initialize UART instances
+#define gpsUART USART2 // Assuming USART2 for GPS
+#define gsmUART USART3 // Assuming USART3 for GSM
+
+String latitude = "";
+String longitude = "";
+
+// Define pins for PIR sensors, ultrasonic sensor, and LED/Buzzer
+const int leftPirPin = PA0;       // Pin connected to the left PIR sensor's output
+const int rightPirPin = PA1;      // Pin connected to the right PIR sensor's output
+const int ledBuzzerPin = PA5;     // Pin connected to the LED or Buzzer
+const int trigPin = PA6;          // Pin connected to the Trig pin of the ultrasonic sensor
+const int echoPin = PA7;          // Pin connected to the Echo pin of the ultrasonic sensor
+
+// Motor A connections
+const int enA = PB0;  // Enable pin for Motor A
+const int motorIn1A = PB1;  // Control pin 1 for Motor A
+const int motorIn2A = PB2;  // Control pin 2 for Motor A
+
+// Motor B connections
+const int enB = PB10; // Enable pin for Motor B
+const int motorIn1B = PB11; // Control pin 1 for Motor B
+const int motorIn2B = PB12; // Control pin 2 for Motor B
+
+int distance;
+
+void setup() {
+  // Set the PIR, ultrasonic sensor, and LED/Buzzer as input/output
+  pinMode(leftPirPin, INPUT);
+  pinMode(rightPirPin, INPUT);
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  pinMode(ledBuzzerPin, OUTPUT);
+
+  // Set motor control pins to outputs
+  pinMode(enA, OUTPUT);
+  pinMode(motorIn1A, OUTPUT);
+  pinMode(motorIn2A, OUTPUT);
+  pinMode(enB, OUTPUT);
+  pinMode(motorIn1B, OUTPUT);
+  pinMode(motorIn2B, OUTPUT);
+
+  // Initialize Serial communication, GPS, and GSM modules
+  Serial.begin(9600);           // For debugging
+  gpsUART.begin(9600);          // GPS module baud rate
+  gsmUART.begin(9600);          // GSM module baud rate
+
+  // Start with the LED/Buzzer off and Motors stopped
+  digitalWrite(ledBuzzerPin, LOW);
+  stopMotorA();
+  stopMotorB();
+
+  Serial.println("System Initialized.");
+}
+
+void loop() {
+  // Read the values from the left and right PIR sensors
+  int leftPirValue = digitalRead(leftPirPin);
+  int rightPirValue = digitalRead(rightPirPin);
+
+  // Ultrasonic sensor distance measurement
+  long duration;
+  digitalWrite(trigPin, LOW);  // Clear the trigPin
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH); // Set the trigPin HIGH for 10 microseconds
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  duration = pulseIn(echoPin, HIGH);  // Read the time the echo takes to return
+  distance = duration / 58.2;         // Calculate the distance in centimeters
+
+  // Check if the PIR sensors detect motion or if the ultrasonic sensor detects an object within the threshold distance
+  if (leftPirValue == HIGH || rightPirValue == HIGH || distance <= 15) {
+    Serial.println("Motion or Obstacle Detected!");
+    digitalWrite(ledBuzzerPin, HIGH); // Turn on the LED or Buzzer
+    stopMotorA();                     // Stop Motor A
+    stopMotorB();                     // Stop Motor B
+    FetchGPSLocation();               // Fetch GPS location
+    SendMessageWithLocation();        // Send SMS with location
+  } else {
+    Serial.println("No Motion or Obstacle Detected");
+    digitalWrite(ledBuzzerPin, LOW);  // Turn off the LED or Buzzer
+    startMotorA();                    // Start Motor A
+    startMotorB();                    // Start Motor B
+  }
+
+  delay(100); // Short delay before the next loop iteration
+}
+
+void startMotorA() {
+  // Run Motor A forward
+  digitalWrite(motorIn1A, LOW);
+  digitalWrite(motorIn2A, HIGH);
+  analogWrite(enA, 255); // Full speed (0 to 255)
+  Serial.println("Motor A Started");
+}
+
+void stopMotorA() {
+  // Stop Motor A
+  analogWrite(enA, 0); // Turn off the motor by setting speed to 0
+  digitalWrite(motorIn1A, LOW);
+  digitalWrite(motorIn2A, LOW);
+  Serial.println("Motor A Stopped");
+}
+
+void startMotorB() {
+  // Run Motor B forward
+  digitalWrite(motorIn1B, LOW);
+  digitalWrite(motorIn2B, HIGH);
+  analogWrite(enB, 255); // Full speed (0 to 255)
+  Serial.println("Motor B Started");
+}
+
+void stopMotorB() {
+  // Stop Motor B
+  analogWrite(enB, 0); // Turn off the motor by setting speed to 0
+  digitalWrite(motorIn1B, LOW);
+  digitalWrite(motorIn2B, LOW);
+  Serial.println("Motor B Stopped");
+}
+
+// Function to fetch GPS location
+void FetchGPSLocation() {
+  while (gpsUART.available() > 0) {
+    char c = gpsUART.read();
+    Serial.write(c); // For debugging purposes
+
+    // Example parsing logic (replace with actual parsing)
+    if (c == ',') {
+      latitude = "12.971598"; // Replace with actual parsed latitude
+      longitude = "77.594566"; // Replace with actual parsed longitude
+      break;
+    }
+  }
+}
+
+// Function to send SMS with GPS location
+void SendMessageWithLocation() {
+  gsmUART.println("AT");
+  delay(1000);
+
+  gsmUART.println("AT+CMGF=1"); // Set GSM module to text mode
+  delay(1000);
+
+  gsmUART.println("AT+CMGS=\"+918867397553\""); // Replace with actual phone number
+  delay(1000);
+
+  gsmUART.print("I'm here: ");
+  gsmUART.print("http://www.google.com/maps/place/");
+  gsmUART.print(latitude);
+  gsmUART.print(",");
+  gsmUART.print(longitude);
+  gsmUART.println();
+
+  delay(100);
+
+  gsmUART.write((char)26); // CTRL+Z to indicate end of message
+  delay(3000); // Ensure message is sent
+
+  if (gsmUART.available()) {
+    String response = gsmUART.readString();
+    Serial.println("GSM response: " + response);
+  } else {
+    Serial.println("No response from GSM module");
+  }
+
+  Serial.println("SMS sent successfully with location");
+}
