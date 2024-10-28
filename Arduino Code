@@ -1,0 +1,176 @@
+#include <SoftwareSerial.h>
+
+// Define pins for GPS and GSM modules
+const int gpsRXPin = 10; // RX for GPS module
+const int gpsTXPin = 11; // TX for GPS module
+const int gsmRXPin = 12; // RX for GSM module
+const int gsmTXPin = 13; // TX for GSM module
+
+const int GPSBaud = 9600; // Default baud rate for NEO-6M GPS modulehttps://github.com/github-copilot/signup
+SoftwareSerial gpsSerial(gpsRXPin, gpsTXPin); // Software serial for GPS
+SoftwareSerial gsmSerial(gsmRXPin, gsmTXPin); // Software serial for GSM
+
+String latitude = "";
+String longitude = "";
+
+// Define pins for PIR sensors, ultrasonic sensor, and LED/Buzzer
+const int leftPirPin = 2;       // Pin connected to the left PIR sensor's output
+const int rightPirPin = 3;      // Pin connected to the right PIR sensor's output
+const int ledBuzzerPin = 9;     // Pin connected to the LED or Buzzer
+const int trigPin = 7;          // Pin connected to the Trig pin of the ultrasonic sensor
+const int echoPin = 8;          // Pin connected to the Echo pin of the ultrasonic sensor
+
+// Motor A connections
+const int enA = 5;  // Enable pin for Motor A
+const int motorIn1A = 4;  // Control pin 1 for Motor A
+const int motorIn2A = 6;  // Control pin 2 for Motor A
+
+// Motor B connections
+const int enB = 14; // New pin for enabling Motor B
+const int motorIn1B = 15; // New control pin 1 for Motor B
+const int motorIn2B = 16; // New control pin 2 for Motor B
+
+int distance;
+
+void setup() {
+  // Set the PIR, ultrasonic sensor, and LED/Buzzer as input/output
+  pinMode(leftPirPin, INPUT);
+  pinMode(rightPirPin, INPUT);
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  pinMode(ledBuzzerPin, OUTPUT);
+
+  // Set motor control pins to outputs
+  pinMode(enA, OUTPUT);
+  pinMode(motorIn1A, OUTPUT);
+  pinMode(motorIn2A, OUTPUT);
+  pinMode(enB, OUTPUT);
+  pinMode(motorIn1B, OUTPUT);
+  pinMode(motorIn2B, OUTPUT);
+
+  // Initialize Serial communication, GPS, and GSM modules
+  Serial.begin(9600);
+  gpsSerial.begin(GPSBaud);
+  gsmSerial.begin(9600);
+
+  // Start with the LED/Buzzer off and Motors stopped
+  digitalWrite(ledBuzzerPin, LOW);
+  stopMotorA();
+  stopMotorB();
+
+  Serial.println("System Initialized.");
+}
+
+void loop() {
+  // Read the values from the left and right PIR sensors
+  int leftPirValue = digitalRead(leftPirPin);
+  int rightPirValue = digitalRead(rightPirPin);
+
+  // Ultrasonic sensor distance measurement
+  long duration;
+  digitalWrite(trigPin, LOW);  // Clear the trigPin
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH); // Set the trigPin HIGH for 10 microseconds
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  duration = pulseIn(echoPin, HIGH);  // Read the time the echo takes to return
+  distance = duration / 58.2;         // Calculate the distance in centimeters
+
+  // Check if the PIR sensors detect motion or if the ultrasonic sensor detects an object within the threshold distance
+  if (leftPirValue == HIGH || rightPirValue == HIGH || distance <= 15) {
+    Serial.println("Motion or Obstacle Detected!");  // Print to serial monitor
+    digitalWrite(ledBuzzerPin, HIGH);                // Turn on the LED or Buzzer
+    stopMotorA();                                    // Stop Motor A
+    stopMotorB();                                    // Stop Motor B
+    FetchGPSLocation();                              // Fetch GPS location
+    SendMessageWithLocation();                       // Send SMS with location
+  } else {
+    Serial.println("No Motion or Obstacle Detected");  // Print to serial monitor
+    digitalWrite(ledBuzzerPin, LOW);                   // Turn off the LED or Buzzer
+    startMotorA();                                     // Start Motor A
+    startMotorB();                                     // Start Motor B
+  }
+
+  delay(100); // Short delay before the next loop iteration
+}
+
+void startMotorA() {
+  // Run Motor A forward
+  digitalWrite(motorIn1A, LOW);
+  digitalWrite(motorIn2A, HIGH);
+  analogWrite(enA, 255); // Full speed (0 to 255)
+  Serial.println("Motor A Started");
+}
+
+void stopMotorA() {
+  // Stop Motor A
+  analogWrite(enA, 0); // Turn off the motor by setting speed to 0
+  digitalWrite(motorIn1A, LOW);
+  digitalWrite(motorIn2A, LOW);
+  Serial.println("Motor A Stopped");
+}
+
+void startMotorB() {
+  // Run Motor B forward
+  digitalWrite(motorIn1B, LOW);
+  digitalWrite(motorIn2B, HIGH);
+  analogWrite(enB, 255); // Full speed (0 to 255)
+  Serial.println("Motor B Started");
+}
+
+void stopMotorB() {
+  // Stop Motor B
+  analogWrite(enB, 0); // Turn off the motor by setting speed to 0
+  digitalWrite(motorIn1B, LOW);
+  digitalWrite(motorIn2B, LOW);
+  Serial.println("Motor B Stopped");
+}
+
+// Function to fetch GPS location
+void FetchGPSLocation() {
+  while (gpsSerial.available() > 0) {
+    char c = gpsSerial.read();
+    Serial.write(c); // For debugging purposes
+
+    // Example parsing logic (replace with actual parsing)
+    if (c == ',') {
+      latitude = "12.971598"; // Replace with actual parsed latitude
+      longitude = "77.594566"; // Replace with actual parsed longitude
+      break;
+    }
+  }
+}
+
+// Function to send SMS with GPS location
+void SendMessageWithLocation() {
+  gsmSerial.println("AT");
+  delay(1000);
+
+  gsmSerial.println("AT+CMGF=1"); // Set GSM module to text mode
+  delay(1000);
+
+  gsmSerial.println("AT+CMGS=\"+918867397553\""); // Replace with actual phone number
+  delay(1000);
+
+  gsmSerial.print("I'm here: ");
+  gsmSerial.print("http://www.google.com/maps/place/");
+  gsmSerial.print(latitude);
+  gsmSerial.print(",");
+  gsmSerial.print(longitude);
+  gsmSerial.println();
+
+  delay(100);
+
+  gsmSerial.write((char)26); // CTRL+Z to indicate end of message
+  delay(3000); // Ensure message is sent
+
+  if (gsmSerial.available()) {
+    String response = gsmSerial.readString();
+    Serial.println("GSM response: " + response);
+  } else {
+    Serial.println("No response from GSM module");
+  }
+
+  Serial.println("SMS sent successfully with location");
+}
