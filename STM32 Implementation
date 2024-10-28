@@ -1,4 +1,4 @@
-Here is the code to implement using STM board (we used STM32Fxxxxx-Nucleo) . Before using the code the pin configurations have to be set using the STM32CubeMX tool and the code has to be added in the generated C file . 
+Here is the code we used to implement using the STM board (we used STM32Fxxxxx-Nucleo) . Before using the code the pin configurations have to be set using the STM32CubeMX tool and the code has to be added in the generated C file . 
 1. Pin Configuration:
 PIR Sensors: Assign GPIO pins for leftPirPin (e.g., PA0) and rightPirPin (e.g., PA1) as GPIO Input.
 Ultrasonic Sensor: Assign PA6 for the Trig pin (as GPIO Output) and PA7 for the Echo pin (as GPIO Input).
