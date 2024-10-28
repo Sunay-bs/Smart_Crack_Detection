@@ -1,0 +1,67 @@
+import cv2
+import urllib.request
+import numpy as np
+import tensorflow as tf
+import time
+
+# Load the trained model
+model = tf.keras.models.load_model('railway_crack_model_wooden.keras')
+
+# URL of the ESP32 camera stream
+url = 'http://192.168.124.114/cam-hi.jpg'  # Replace with your ESP32 camera's IP
+
+def fetch_image(url):
+    try:
+        # Fetch the image from the URL
+        img_resp = urllib.request.urlopen(url)
+        imgnp = np.array(bytearray(img_resp.read()), dtype=np.uint8)
+        im = cv2.imdecode(imgnp, -1)
+        return im
+    except Exception as e:
+        print(f"Error fetching image: {e}")
+        return None
+
+def detect_crack(image, model):
+    # Convert to grayscale to match the model's training data
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    resized_image = cv2.resize(gray_image, (150, 150))
+    resized_image = resized_image.reshape(-1, 150, 150, 1) / 255.0  # Add batch dimension and normalize
+
+    # Make a prediction
+    prediction = model.predict(resized_image)
+    return prediction[0][0] > 0.5  # Threshold for crack detection
+
+def display_live_transmission():
+    cv2.namedWindow("Live Transmission", cv2.WINDOW_AUTOSIZE)
+    while True:
+        # Fetch the frame from the live stream
+        im = fetch_image(url)
+        if im is not None:
+            # Detect crack
+            if detect_crack(im, model):
+                # If a crack is detected, outline the crack region
+                gray = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+                contours, _ = cv2.findContours(cv2.Canny(gray, 50, 150), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                if contours:
+                    # Draw contours around the detected crack regions
+                    cv2.drawContours(im, contours, -1, (0, 0, 255), 2)
+                    cv2.putText(im, 'Crack Detected', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+            
+            # Display the processed frame
+            cv2.imshow('Live Transmission', im)
+        else:
+            print("Failed to load image for live transmission.")
+        
+        # Exit the loop if 'q' is pressed
+        if cv2.waitKey(5) & 0xFF == ord('q'):
+            break
+        
+        # Optional delay
+        time.sleep(0.1)
+    
+    cv2.destroyAllWindows()
+
+# Run the live transmission display
+if __name__ == '__main__':
+    print("Starting live transmission...")
+    display_live_transmission()
